@@ -17,37 +17,46 @@ Standalone binary that exposes log search tools over MCP (Model Context Protocol
 - **Authentication** — supports Basic auth, API key, and no-auth modes
 - **ECS-aware formatting** — formats log entries using Elastic Common Schema fields
 - **HTTP transport** — MCP Streamable HTTP with Bearer token authentication and session management
-- **Dual transport** — stdio (default) or HTTP mode via `--transport` flag
+- **Dual transport** — stdio (default) or HTTP mode via `--http` flag
 
 ## Architecture
 
-Single crate, four source modules:
+Single crate, six source modules:
 
 | Module | Responsibility |
 |---|---|
-| `src/main.rs` | CLI parsing (clap), KibanaClient creation, entry point, transport selection |
+| `src/main.rs` | Entry point, transport selection |
+| `src/cli.rs` | CLI argument parsing |
+| `src/config.rs` | Configuration from environment variables |
 | `src/mcp.rs` | JSON-RPC 2.0 dispatch, MCP tool definitions, async stdio read/write loop |
 | `src/http.rs` | HTTP transport: axum server, Bearer auth, session management |
 | `src/kibana.rs` | HTTP client for Elasticsearch/Kibana REST API |
 | `src/tools.rs` | MCP tool implementations, log entry formatting |
 
-## CLI Arguments
+## CLI Commands
 
 ```
-kibana-mcp-server --kibana-url <URL> [OPTIONS]
+kibana-mcp-server [COMMAND]
 
-Options:
-  --kibana-url <URL>     Kibana or Elasticsearch base URL [required]
-  --username <USER>      Username for basic authentication
-  --password <PASS>      Password for basic authentication
-  --api-key <KEY>        API key for Elasticsearch authentication
-  --insecure             Skip TLS certificate verification
-  --transport <MODE>     Transport mode: stdio or http [default: stdio]
-  --host <HOST>          Host to bind HTTP server [default: 127.0.0.1]
-  --port <PORT>          Port for HTTP server [default: 8080]
-  --auth <TOKEN>         Bearer token for HTTP authentication (optional)
-  --version              Print version and exit
+Commands:
+  --stdio      Run in stdio mode (default)
+  --http       Run in HTTP mode
+  --version    Print version and exit
+  --help       Print this help and exit
 ```
+
+## Environment Variables
+
+| Variable | Description | Required |
+|---|---|---|
+| `KIBANA_URL` | Kibana or Elasticsearch base URL | Yes |
+| `KIBANA_USERNAME` | Username for basic authentication | No |
+| `KIBANA_PASSWORD` | Password for basic authentication | No |
+| `KIBANA_API_KEY` | API key for Elasticsearch authentication | No |
+| `KIBANA_INSECURE` | Skip TLS verification (`"true"` or `"1"`) | No |
+| `MCP_HOST` | Host to bind HTTP server [default: 127.0.0.1] | No |
+| `MCP_PORT` | Port for HTTP server [default: 8080] | No |
+| `MCP_AUTH_TOKEN` | Bearer token for HTTP authentication | No |
 
 ## Build
 
@@ -66,7 +75,6 @@ cargo build --release
 | Crate | Purpose |
 |---|---|
 | `reqwest` | HTTP client for Elasticsearch/Kibana API |
-| `clap` | CLI argument parsing |
 | `serde`, `serde_json` | JSON serialization for MCP protocol and ES queries |
 | `tracing`, `tracing-subscriber` | Structured logging to stderr |
 | `axum` | HTTP server framework for MCP HTTP transport |
@@ -85,10 +93,10 @@ The server supports two transport modes:
 Start the server in HTTP mode:
 
 ```bash
-kibana-mcp-server --kibana-url http://localhost:9200 --transport http --port 8080 --auth secret123
+KIBANA_URL=http://localhost:9200 MCP_PORT=8080 MCP_AUTH_TOKEN=secret123 kibana-mcp-server --http
 ```
 
-**Authentication**: when `--auth` is set, all requests must include `Authorization: Bearer <token>`. Without `--auth`, authentication is disabled.
+**Authentication**: when `MCP_AUTH_TOKEN` is set, all requests must include `Authorization: Bearer <token>`. Without `MCP_AUTH_TOKEN`, authentication is disabled.
 
 **Sessions**: the `initialize` request returns an `Mcp-Session-Id` header. All subsequent requests must include this header. Sessions are terminated via `DELETE /mcp`.
 
@@ -174,7 +182,9 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "kibana": {
       "command": "/path/to/kibana-mcp-server",
-      "args": ["--kibana-url", "http://localhost:9200"]
+      "env": {
+        "KIBANA_URL": "http://localhost:9200"
+      }
     }
   }
 }
@@ -187,11 +197,11 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "kibana": {
       "command": "/path/to/kibana-mcp-server",
-      "args": [
-        "--kibana-url", "https://my-kibana.example.com",
-        "--username", "elastic",
-        "--password", "changeme"
-      ]
+      "env": {
+        "KIBANA_URL": "https://my-kibana.example.com",
+        "KIBANA_USERNAME": "elastic",
+        "KIBANA_PASSWORD": "changeme"
+      }
     }
   }
 }
@@ -200,7 +210,7 @@ Add to `claude_desktop_config.json`:
 ### HTTP mode
 
 ```bash
-kibana-mcp-server --kibana-url http://localhost:9200 --transport http --port 8080 --auth mytoken
+KIBANA_URL=http://localhost:9200 MCP_AUTH_TOKEN=mytoken kibana-mcp-server --http
 ```
 
 Connect any HTTP-capable MCP client to `http://127.0.0.1:8080/mcp`.

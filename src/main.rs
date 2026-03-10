@@ -1,55 +1,30 @@
 use std::sync::Arc;
 
-use clap::Parser;
 use tracing::{info, warn};
 
+mod cli;
+mod config;
 mod http;
 mod kibana;
 mod mcp;
 mod tools;
 
-#[derive(Parser)]
-#[command(name = "kibana-mcp-server", version)]
-struct Args {
-    /// Kibana or Elasticsearch base URL
-    #[arg(long)]
-    kibana_url: String,
-
-    /// Username for basic authentication
-    #[arg(long)]
-    username: Option<String>,
-
-    /// Password for basic authentication
-    #[arg(long)]
-    password: Option<String>,
-
-    /// API key for Elasticsearch authentication
-    #[arg(long)]
-    api_key: Option<String>,
-
-    /// Skip TLS certificate verification
-    #[arg(long)]
-    insecure: bool,
-
-    /// Transport mode: stdio or http
-    #[arg(long, default_value = "stdio")]
-    transport: String,
-
-    /// Host to bind HTTP server (http transport only)
-    #[arg(long, default_value = "127.0.0.1")]
-    host: String,
-
-    /// Port for HTTP server (http transport only)
-    #[arg(long, default_value_t = 8080)]
-    port: u16,
-
-    /// Bearer token for HTTP authentication (http transport only)
-    #[arg(long)]
-    auth: Option<String>,
-}
-
 #[tokio::main]
 async fn main() {
+    let command = cli::parse_args();
+
+    match command {
+        cli::Command::Help => {
+            cli::print_help();
+            return;
+        }
+        cli::Command::Version => {
+            cli::print_version();
+            return;
+        }
+        _ => {}
+    }
+
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -58,44 +33,49 @@ async fn main() {
         )
         .init();
 
-    let args = Args::parse();
+    let kibana_config = match config::KibanaConfig::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
-    // Validate auth args
-    if args.username.is_some() != args.password.is_some() {
-        eprintln!("Both --username and --password must be provided together");
-        std::process::exit(1);
-    }
-
-    if args.insecure {
+    if kibana_config.insecure {
         warn!("TLS certificate verification is disabled");
     }
 
-    if args.api_key.is_some() && args.username.is_some() {
-        eprintln!("Cannot use both --api-key and --username/--password");
-        std::process::exit(1);
-    }
-
-    info!("Connecting to {}", args.kibana_url);
+    info!("Connecting to {}", kibana_config.url);
 
     let client = kibana::KibanaClient::new(
-        &args.kibana_url,
-        args.username.as_deref(),
-        args.password.as_deref(),
-        args.api_key.as_deref(),
-        args.insecure,
+        &kibana_config.url,
+        kibana_config.username.as_deref(),
+        kibana_config.password.as_deref(),
+        kibana_config.api_key.as_deref(),
+        kibana_config.insecure,
     );
     let client = Arc::new(client);
 
     info!("Starting MCP server");
 
-    match args.transport.as_str() {
-        "stdio" => mcp::run_stdio_loop(client).await,
-        "http" => {
-            http::run_http_server(client, &args.host, args.port, args.auth).await;
+    match command {
+        cli::Command::Stdio => mcp::run_stdio_loop(client).await,
+        cli::Command::Http => {
+            let http_config = match config::HttpConfig::from_env() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            http::run_http_server(
+                client,
+                &http_config.host,
+                http_config.port,
+                http_config.auth_token,
+            )
+            .await;
         }
-        other => {
-            eprintln!("Unknown transport: {other}");
-            std::process::exit(1);
-        }
+        cli::Command::Help | cli::Command::Version => unreachable!(),
     }
 }
