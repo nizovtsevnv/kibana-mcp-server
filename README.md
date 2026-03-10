@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/nizovtsevnv/kibana-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/nizovtsevnv/kibana-mcp-server/actions/workflows/ci.yml)
 [![Release](https://github.com/nizovtsevnv/kibana-mcp-server/actions/workflows/release.yml/badge.svg)](https://github.com/nizovtsevnv/kibana-mcp-server/actions/workflows/release.yml)
+[![crates.io](https://img.shields.io/crates/v/kibana-mcp-server)](https://crates.io/crates/kibana-mcp-server)
 
 MCP server for accessing logs in Kibana/Elasticsearch.
 
