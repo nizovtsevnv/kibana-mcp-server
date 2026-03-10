@@ -95,6 +95,61 @@ impl KibanaClient {
         }
     }
 
+    /// Send a request to Elasticsearch, routing through Kibana proxy if needed.
+    async fn es_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Value, String> {
+        let backend = self.detect_backend().await;
+
+        let req = match backend {
+            BackendType::Elasticsearch => {
+                let url = format!("{}{}", self.base_url, path);
+                let mut r = match method {
+                    "POST" => self.client.post(&url),
+                    "GET" => self.client.get(&url),
+                    _ => {
+                        let m = method
+                            .parse()
+                            .map_err(|e| format!("Invalid HTTP method '{method}': {e}"))?;
+                        self.client.request(m, &url)
+                    }
+                };
+                if let Some(b) = body {
+                    r = r.json(b);
+                }
+                r
+            }
+            BackendType::Kibana => {
+                let url = format!("{}/api/console/proxy", self.base_url);
+                let mut r = self
+                    .client
+                    .post(&url)
+                    .header("kbn-xsrf", "true")
+                    .query(&[("path", path), ("method", method)]);
+                if let Some(b) = body {
+                    r = r.json(b);
+                }
+                r
+            }
+        };
+
+        let req = self.apply_auth(req);
+        let resp = req.send().await.map_err(|e| format!("HTTP error: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Elasticsearch returned {status}: {text}"));
+        }
+
+        resp.json()
+            .await
+            .map_err(|e| format!("JSON parse error: {e}"))
+    }
+
     pub async fn detect_backend(&self) -> BackendType {
         if let Some(b) = self.backend.get() {
             return *b;
@@ -115,8 +170,6 @@ impl KibanaClient {
     }
 
     pub async fn search(&self, query: &SearchQuery) -> Result<SearchResponse, String> {
-        let url = format!("{}/{}/_search", self.base_url, query.index);
-
         let mut must = vec![json!({
             "query_string": { "query": query.query_string }
         })];
@@ -137,7 +190,7 @@ impl KibanaClient {
             "size": query.size,
             "sort": [
                 { query.timestamp_field.clone(): { "order": "desc" } },
-                { "_id": { "order": "asc" } }
+                { "_doc": { "order": "asc" } }
             ]
         });
 
@@ -145,21 +198,9 @@ impl KibanaClient {
             body["search_after"] = json!(cursor);
         }
 
-        let req = self.client.post(&url).json(&body);
-        let req = self.apply_auth(req);
-
-        let resp = req.send().await.map_err(|e| format!("HTTP error: {e}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Elasticsearch returned {status}: {text}"));
-        }
-
-        let data: Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let data = self
+            .es_request("POST", &format!("/{}/_search", query.index), Some(&body))
+            .await?;
 
         parse_search_response(&data)
     }
@@ -254,24 +295,8 @@ impl KibanaClient {
     }
 
     pub async fn get_document(&self, index: &str, doc_id: &str) -> Result<Value, String> {
-        let url = format!("{}/{}/_doc/{}", self.base_url, index, doc_id);
-        let req = self.client.get(&url);
-        let req = self.apply_auth(req);
-
-        let resp = req.send().await.map_err(|e| format!("HTTP error: {e}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Elasticsearch returned {status}: {text}"));
-        }
-
-        let data: Value = resp
-            .json()
+        self.es_request("GET", &format!("/{}/_doc/{}", index, doc_id), None)
             .await
-            .map_err(|e| format!("JSON parse error: {e}"))?;
-
-        Ok(data)
     }
 
     pub async fn get_context(
@@ -302,14 +327,10 @@ impl KibanaClient {
             "sort": [{ timestamp_field: { "order": "desc" } }]
         });
 
-        let before_url = format!("{}/{}/_search", self.base_url, index);
-        let req = self.client.post(&before_url).json(&before_body);
-        let req = self.apply_auth(req);
-        let resp = req.send().await.map_err(|e| format!("HTTP error: {e}"))?;
-        let before_data: Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let search_path = format!("/{}/_search", index);
+        let before_data = self
+            .es_request("POST", &search_path, Some(&before_body))
+            .await?;
         let mut before_hits = extract_hits(&before_data);
         before_hits.reverse(); // Chronological order
 
@@ -324,14 +345,9 @@ impl KibanaClient {
             "sort": [{ timestamp_field: { "order": "asc" } }]
         });
 
-        let after_url = format!("{}/{}/_search", self.base_url, index);
-        let req = self.client.post(&after_url).json(&after_body);
-        let req = self.apply_auth(req);
-        let resp = req.send().await.map_err(|e| format!("HTTP error: {e}"))?;
-        let after_data: Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("JSON parse error: {e}"))?;
+        let after_data = self
+            .es_request("POST", &search_path, Some(&after_body))
+            .await?;
         let after_hits = extract_hits(&after_data);
 
         Ok(ContextResponse {
@@ -471,7 +487,7 @@ mod tests {
             "size": query.size,
             "sort": [
                 { query.timestamp_field.clone(): { "order": "desc" } },
-                { "_id": { "order": "asc" } }
+                { "_doc": { "order": "asc" } }
             ]
         });
 

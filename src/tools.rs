@@ -160,7 +160,13 @@ fn format_hit(hit: &Value) -> String {
 
     // Priority fields (ECS compatible)
     let timestamp = get_field(source, "@timestamp");
-    let message = get_field(source, "message");
+    let message = get_field(source, "message").or_else(|| {
+        // Fall back to "log" field if it's a string (not a nested object like {"level": "..."})
+        source
+            .get("log")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    });
     let level = get_field(source, "level").or_else(|| get_nested_field(source, &["log", "level"]));
     let host =
         get_field(source, "host.name").or_else(|| get_nested_field(source, &["host", "name"]));
@@ -305,6 +311,22 @@ mod tests {
 
         let result = format_hit(&hit);
         assert!(result.contains("[WARN]"));
+    }
+
+    #[test]
+    fn test_format_hit_log_field_fallback() {
+        let hit = json!({
+            "_index": "application-2026.03.10",
+            "_id": "1",
+            "_source": {
+                "@timestamp": "2026-03-10T10:00:00Z",
+                "log": "[2026-03-10 13:00:00] production.INFO: Test message",
+                "source": "stdout"
+            }
+        });
+
+        let result = format_hit(&hit);
+        assert!(result.contains("production.INFO: Test message"));
     }
 
     #[test]
