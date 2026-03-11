@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.1.2] - 2026-03-11
+
+### Added
+- GET /health endpoint returning {"status": "ok"} for load balancer and monitoring health checks
+
 ## [v0.1.1] - 2026-03-10
 
 ### Changed
@@ -35,5 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use _doc sort instead of _id to avoid fielddata errors
 - Fallback from log to message field in hit formatting
 
+[v0.1.2]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.0

@@ -18,7 +18,7 @@
         pname = cargoToml.package.name;
         version = cargoToml.package.version;
 
-        cargoHash = "sha256-uuHWqnDx76MeE5fjpVaFWd1xLhDMN/fnvOwcBV7FhNM=";
+        cargoHash = "sha256-t0nFM53RzG2DE7jqJ6gwzpqt6ZHE70E4hSYXVKarxpA=";
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           targets = [
