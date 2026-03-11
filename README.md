@@ -14,7 +14,7 @@ Standalone binary that exposes log search tools over MCP (Model Context Protocol
 - **Tool `get_indices`** — list available indices (ES) or index patterns (Kibana)
 - **Tool `get_log_context`** — get surrounding log entries for a specific document
 - **Auto-detection** — automatically detects Kibana vs Elasticsearch backend
-- **Authentication** — supports Basic auth, API key, and no-auth modes
+- **Authentication** — supports Basic auth, API key, and no-auth modes; per-client credentials in HTTP mode
 - **ECS-aware formatting** — formats log entries using Elastic Common Schema fields
 - **HTTP transport** — MCP Streamable HTTP with Bearer token authentication and session management
 - **Dual transport** — stdio (default) or HTTP mode via `--http` flag
@@ -47,16 +47,27 @@ Commands:
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|---|---|---|
-| `KIBANA_URL` | Kibana or Elasticsearch base URL | Yes |
-| `KIBANA_USERNAME` | Username for basic authentication | No |
-| `KIBANA_PASSWORD` | Password for basic authentication | No |
-| `KIBANA_API_KEY` | API key for Elasticsearch authentication | No |
-| `KIBANA_INSECURE` | Skip TLS verification (`"true"` or `"1"`) | No |
-| `MCP_HOST` | Host to bind HTTP server [default: 127.0.0.1] | No |
-| `MCP_PORT` | Port for HTTP server [default: 8080] | No |
-| `MCP_AUTH_TOKEN` | Bearer token for HTTP authentication | No |
+| Variable | Description | Mode | Required |
+|---|---|---|---|
+| `KIBANA_URL` | Kibana or Elasticsearch base URL | Both | Yes |
+| `KIBANA_INSECURE` | Skip TLS verification (`"true"` or `"1"`) | Both | No |
+| `KIBANA_USERNAME` | Username for basic authentication | Stdio only | No |
+| `KIBANA_PASSWORD` | Password for basic authentication | Stdio only | No |
+| `KIBANA_API_KEY` | API key for Elasticsearch authentication | Stdio only | No |
+| `MCP_HOST` | Host to bind HTTP server [default: 127.0.0.1] | HTTP only | No |
+| `MCP_PORT` | Port for HTTP server [default: 8080] | HTTP only | No |
+| `MCP_AUTH_TOKEN` | Bearer token for HTTP authentication | HTTP only | No |
+
+### Per-client credentials (HTTP mode)
+
+In HTTP mode, Kibana credentials are not configured via environment variables. Instead, each client provides its own credentials through HTTP headers on the `initialize` request:
+
+| Header | Description |
+|---|---|
+| `X-Kibana-Username` + `X-Kibana-Password` | Basic authentication |
+| `X-Kibana-API-Key` | API key authentication |
+
+The two schemes are mutually exclusive. Credentials are stored per-session and used for all subsequent requests within that session.
 
 ## Build
 
@@ -97,6 +108,8 @@ KIBANA_URL=http://localhost:9200 MCP_PORT=8080 MCP_AUTH_TOKEN=secret123 kibana-m
 ```
 
 **Authentication**: when `MCP_AUTH_TOKEN` is set, all requests must include `Authorization: Bearer <token>`. Without `MCP_AUTH_TOKEN`, authentication is disabled.
+
+**Per-client Kibana credentials**: the `initialize` request must include Kibana credentials via `X-Kibana-Username`/`X-Kibana-Password` or `X-Kibana-API-Key` headers. Each session gets its own Kibana client with these credentials.
 
 **Sessions**: the `initialize` request returns an `Mcp-Session-Id` header. All subsequent requests must include this header. Sessions are terminated via `DELETE /mcp`.
 
@@ -213,3 +226,20 @@ KIBANA_URL=http://localhost:9200 MCP_AUTH_TOKEN=mytoken kibana-mcp-server --http
 ```
 
 Connect any HTTP-capable MCP client to `http://127.0.0.1:8080/mcp`.
+
+#### Claude Code (HTTP with per-client credentials)
+
+```bash
+claude mcp add --transport http kibana https://mcp.example.com/mcp \
+  --header "Authorization: Bearer <mcp-token>" \
+  --header "X-Kibana-Username: myuser" \
+  --header "X-Kibana-Password: mypass"
+```
+
+Or with an API key:
+
+```bash
+claude mcp add --transport http kibana https://mcp.example.com/mcp \
+  --header "Authorization: Bearer <mcp-token>" \
+  --header "X-Kibana-API-Key: <base64-encoded-api-key>"
+```
