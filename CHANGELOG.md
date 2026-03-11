@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.2.0] - 2026-03-12
+
+### Added
+- Per-client Kibana credentials in HTTP mode via X-Kibana-* headers
+- AuthMethod::from_headers() for extracting credentials from HTTP headers
+- KibanaClient::with_shared_client() for reusing connection pools
+- ServerConfig for HTTP mode (URL + TLS only, no credentials)
+- Per-session KibanaClient storage in HTTP transport
+
+### Changed
+- HTTP mode no longer requires KIBANA_USERNAME/KIBANA_PASSWORD/KIBANA_API_KEY env vars
+- Each HTTP client provides Kibana credentials via initialize request headers
+- Sessions store per-client KibanaClient instead of just session IDs
+
 ## [v0.1.2] - 2026-03-11
 
 ### Added
@@ -40,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use _doc sort instead of _id to avoid fielddata errors
 - Fallback from log to message field in hit formatting
 
+[v0.2.0]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.2.0
 [v0.1.2]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/nizovtsevnv/kibana-mcp-server/releases/tag/v0.1.0
