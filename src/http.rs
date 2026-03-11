@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::extract::State;
@@ -9,24 +10,37 @@ use axum::routing::{get, post};
 use axum::Router;
 use tracing::info;
 
-use crate::kibana::KibanaClient;
+use crate::kibana::{AuthMethod, KibanaClient};
+
+struct Session {
+    client: Arc<KibanaClient>,
+}
 
 struct AppState {
-    client: Arc<KibanaClient>,
+    shared_http_client: reqwest::Client,
+    base_url: String,
     auth_token: Option<String>,
-    sessions: Mutex<HashSet<String>>,
+    sessions: Mutex<HashMap<String, Session>>,
 }
 
 pub async fn run_http_server(
-    client: Arc<KibanaClient>,
+    base_url: &str,
+    insecure: bool,
     host: &str,
     port: u16,
     auth_token: Option<String>,
 ) {
+    let shared_http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .danger_accept_invalid_certs(insecure)
+        .build()
+        .expect("failed to create shared HTTP client");
+
     let state = Arc::new(AppState {
-        client,
+        shared_http_client,
+        base_url: base_url.to_string(),
         auth_token,
-        sessions: Mutex::new(HashSet::new()),
+        sessions: Mutex::new(HashMap::new()),
     });
 
     let app = Router::new()
@@ -100,7 +114,40 @@ async fn handle_post(
         .as_deref()
         == Some("initialize");
 
-    if !is_initialize {
+    if is_initialize {
+        // Extract per-client Kibana credentials from headers
+        let auth = match AuthMethod::from_headers(&headers) {
+            Ok(a) => a,
+            Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+        };
+
+        let client = Arc::new(KibanaClient::with_shared_client(
+            state.shared_http_client.clone(),
+            &state.base_url,
+            auth,
+        ));
+
+        let result = crate::mcp::dispatch_request(&body, &client).await;
+
+        match result {
+            Some(response_json) => {
+                let session_id = uuid::Uuid::new_v4().to_string();
+                state
+                    .sessions
+                    .lock()
+                    .expect("session lock poisoned")
+                    .insert(session_id.clone(), Session { client });
+
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", "application/json")
+                    .header("mcp-session-id", &session_id)
+                    .body(Body::from(response_json))
+                    .expect("failed to build HTTP response")
+            }
+            None => (StatusCode::ACCEPTED, "").into_response(),
+        }
+    } else {
         // Require valid session ID for non-initialize requests
         let session_id = match get_session_id(&headers) {
             Some(id) => id,
@@ -109,38 +156,23 @@ async fn handle_post(
             }
         };
 
-        let sessions = state.sessions.lock().expect("session lock poisoned");
-        if !sessions.contains(&session_id) {
-            return (StatusCode::BAD_REQUEST, "Invalid session ID").into_response();
-        }
-    }
-
-    let result = crate::mcp::dispatch_request(&body, &state.client).await;
-
-    match result {
-        Some(response_json) => {
-            let mut builder = Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "application/json");
-
-            // If this was an initialize request, create a session
-            if is_initialize {
-                let session_id = uuid::Uuid::new_v4().to_string();
-                state
-                    .sessions
-                    .lock()
-                    .expect("session lock poisoned")
-                    .insert(session_id.clone());
-                builder = builder.header("mcp-session-id", &session_id);
+        let client = {
+            let sessions = state.sessions.lock().expect("session lock poisoned");
+            match sessions.get(&session_id) {
+                Some(session) => Arc::clone(&session.client),
+                None => return (StatusCode::BAD_REQUEST, "Invalid session ID").into_response(),
             }
+        };
 
-            builder
+        let result = crate::mcp::dispatch_request(&body, &client).await;
+
+        match result {
+            Some(response_json) => Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/json")
                 .body(Body::from(response_json))
-                .expect("failed to build HTTP response")
-        }
-        None => {
-            // Notification — no response body needed
-            (StatusCode::ACCEPTED, "").into_response()
+                .expect("failed to build HTTP response"),
+            None => (StatusCode::ACCEPTED, "").into_response(),
         }
     }
 }
@@ -160,7 +192,7 @@ async fn handle_delete(State(state): State<Arc<AppState>>, headers: HeaderMap) -
     };
 
     let mut sessions = state.sessions.lock().expect("session lock poisoned");
-    if sessions.remove(&session_id) {
+    if sessions.remove(&session_id).is_some() {
         (StatusCode::OK, "Session terminated").into_response()
     } else {
         (StatusCode::NOT_FOUND, "Session not found").into_response()
@@ -207,14 +239,24 @@ mod tests {
 
     #[test]
     fn test_session_lifecycle() {
-        let sessions: Mutex<HashSet<String>> = Mutex::new(HashSet::new());
+        let sessions: Mutex<HashMap<String, Session>> = Mutex::new(HashMap::new());
 
         let session_id = uuid::Uuid::new_v4().to_string();
-        sessions.lock().unwrap().insert(session_id.clone());
-        assert!(sessions.lock().unwrap().contains(&session_id));
+        let client = Arc::new(KibanaClient::new(
+            "http://localhost:9200",
+            None,
+            None,
+            None,
+            false,
+        ));
+        sessions
+            .lock()
+            .unwrap()
+            .insert(session_id.clone(), Session { client });
+        assert!(sessions.lock().unwrap().contains_key(&session_id));
 
-        assert!(sessions.lock().unwrap().remove(&session_id));
-        assert!(!sessions.lock().unwrap().contains(&session_id));
+        assert!(sessions.lock().unwrap().remove(&session_id).is_some());
+        assert!(!sessions.lock().unwrap().contains_key(&session_id));
     }
 
     #[test]

@@ -32,7 +32,7 @@ pub(crate) struct JsonRpcResponse {
 
 /// Process a JSON-RPC request and return a response.
 /// Returns None for notifications that require no response.
-pub async fn dispatch_request(request_json: &str, client: &Arc<KibanaClient>) -> Option<String> {
+pub async fn dispatch_request(request_json: &str, client: &KibanaClient) -> Option<String> {
     let request: JsonRpcRequest = match serde_json::from_str(request_json) {
         Ok(r) => r,
         Err(e) => {
@@ -217,10 +217,7 @@ fn handle_tools_list(request: &JsonRpcRequest) -> JsonRpcResponse {
     }
 }
 
-async fn handle_tools_call(
-    request: &JsonRpcRequest,
-    client: &Arc<KibanaClient>,
-) -> JsonRpcResponse {
+async fn handle_tools_call(request: &JsonRpcRequest, client: &KibanaClient) -> JsonRpcResponse {
     let tool_name = request
         .params
         .get("name")

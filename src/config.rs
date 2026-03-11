@@ -8,6 +8,12 @@ pub struct KibanaConfig {
     pub insecure: bool,
 }
 
+/// Minimal config for HTTP mode: only URL + TLS settings (credentials come per-client).
+pub struct ServerConfig {
+    pub url: String,
+    pub insecure: bool,
+}
+
 pub struct HttpConfig {
     pub host: String,
     pub port: u16,
@@ -48,6 +54,16 @@ impl KibanaConfig {
             api_key,
             insecure,
         })
+    }
+}
+
+impl ServerConfig {
+    pub fn from_env() -> Result<Self, String> {
+        let url = env_opt("KIBANA_URL").ok_or("KIBANA_URL environment variable is required")?;
+        let insecure = env_opt("KIBANA_INSECURE")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        Ok(Self { url, insecure })
     }
 }
 

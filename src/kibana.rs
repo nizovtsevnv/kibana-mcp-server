@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use axum::http::HeaderMap;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::info;
@@ -11,7 +12,7 @@ pub enum BackendType {
     Elasticsearch,
 }
 
-enum AuthMethod {
+pub enum AuthMethod {
     None,
     Basic { username: String, password: String },
     ApiKey(String),
@@ -54,6 +55,47 @@ pub struct ContextResponse {
     pub after: Vec<Value>,
 }
 
+impl AuthMethod {
+    /// Extract Kibana credentials from HTTP headers.
+    ///
+    /// Supported schemes (mutually exclusive):
+    /// - `X-Kibana-API-Key` header → `AuthMethod::ApiKey`
+    /// - `X-Kibana-Username` + `X-Kibana-Password` headers → `AuthMethod::Basic`
+    pub fn from_headers(headers: &HeaderMap) -> Result<Self, String> {
+        let api_key = headers
+            .get("x-kibana-api-key")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty());
+        let username = headers
+            .get("x-kibana-username")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty());
+        let password = headers
+            .get("x-kibana-password")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty());
+
+        match (api_key, username, password) {
+            (Some(_), Some(_), _) | (Some(_), _, Some(_)) => Err(
+                "Cannot use both X-Kibana-API-Key and X-Kibana-Username/X-Kibana-Password"
+                    .to_string(),
+            ),
+            (Some(key), None, None) => Ok(AuthMethod::ApiKey(key.to_string())),
+            (None, Some(u), Some(p)) => Ok(AuthMethod::Basic {
+                username: u.to_string(),
+                password: p.to_string(),
+            }),
+            (None, Some(_), None) | (None, None, Some(_)) => Err(
+                "Both X-Kibana-Username and X-Kibana-Password must be provided together"
+                    .to_string(),
+            ),
+            (None, None, None) => {
+                Err("Missing Kibana credentials: provide X-Kibana-API-Key or X-Kibana-Username + X-Kibana-Password headers".to_string())
+            }
+        }
+    }
+}
+
 impl KibanaClient {
     pub fn new(
         base_url: &str,
@@ -79,6 +121,16 @@ impl KibanaClient {
             .build()
             .expect("failed to create HTTP client");
 
+        Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            auth,
+            backend: OnceLock::new(),
+        }
+    }
+
+    /// Create a client that reuses an existing connection pool.
+    pub fn with_shared_client(client: reqwest::Client, base_url: &str, auth: AuthMethod) -> Self {
         Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -456,6 +508,47 @@ mod tests {
         let data = json!({});
         let hits = extract_hits(&data);
         assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn test_auth_method_from_headers_api_key() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-kibana-api-key", "my-api-key".parse().unwrap());
+        let auth = AuthMethod::from_headers(&headers).unwrap();
+        assert!(matches!(auth, AuthMethod::ApiKey(k) if k == "my-api-key"));
+    }
+
+    #[test]
+    fn test_auth_method_from_headers_basic() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-kibana-username", "user".parse().unwrap());
+        headers.insert("x-kibana-password", "pass".parse().unwrap());
+        let auth = AuthMethod::from_headers(&headers).unwrap();
+        assert!(
+            matches!(auth, AuthMethod::Basic { username, password } if username == "user" && password == "pass")
+        );
+    }
+
+    #[test]
+    fn test_auth_method_from_headers_conflict() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-kibana-api-key", "key".parse().unwrap());
+        headers.insert("x-kibana-username", "user".parse().unwrap());
+        headers.insert("x-kibana-password", "pass".parse().unwrap());
+        assert!(AuthMethod::from_headers(&headers).is_err());
+    }
+
+    #[test]
+    fn test_auth_method_from_headers_missing() {
+        let headers = axum::http::HeaderMap::new();
+        assert!(AuthMethod::from_headers(&headers).is_err());
+    }
+
+    #[test]
+    fn test_auth_method_from_headers_partial_basic() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-kibana-username", "user".parse().unwrap());
+        assert!(AuthMethod::from_headers(&headers).is_err());
     }
 
     #[test]

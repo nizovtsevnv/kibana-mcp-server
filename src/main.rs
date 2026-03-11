@@ -33,34 +33,42 @@ async fn main() {
         )
         .init();
 
-    let kibana_config = match config::KibanaConfig::from_env() {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    if kibana_config.insecure {
-        warn!("TLS certificate verification is disabled");
-    }
-
-    info!("Connecting to {}", kibana_config.url);
-
-    let client = kibana::KibanaClient::new(
-        &kibana_config.url,
-        kibana_config.username.as_deref(),
-        kibana_config.password.as_deref(),
-        kibana_config.api_key.as_deref(),
-        kibana_config.insecure,
-    );
-    let client = Arc::new(client);
-
-    info!("Starting MCP server");
-
     match command {
-        cli::Command::Stdio => mcp::run_stdio_loop(client).await,
+        cli::Command::Stdio => {
+            let kibana_config = match config::KibanaConfig::from_env() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            if kibana_config.insecure {
+                warn!("TLS certificate verification is disabled");
+            }
+
+            info!("Connecting to {}", kibana_config.url);
+
+            let client = kibana::KibanaClient::new(
+                &kibana_config.url,
+                kibana_config.username.as_deref(),
+                kibana_config.password.as_deref(),
+                kibana_config.api_key.as_deref(),
+                kibana_config.insecure,
+            );
+            let client = Arc::new(client);
+
+            info!("Starting MCP server (stdio)");
+            mcp::run_stdio_loop(client).await;
+        }
         cli::Command::Http => {
+            let server_config = match config::ServerConfig::from_env() {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
             let http_config = match config::HttpConfig::from_env() {
                 Ok(c) => c,
                 Err(e) => {
@@ -68,8 +76,17 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
+
+            if server_config.insecure {
+                warn!("TLS certificate verification is disabled");
+            }
+
+            info!("Base URL: {}", server_config.url);
+            info!("Starting MCP server (HTTP)");
+
             http::run_http_server(
-                client,
+                &server_config.url,
+                server_config.insecure,
                 &http_config.host,
                 http_config.port,
                 http_config.auth_token,

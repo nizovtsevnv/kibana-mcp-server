@@ -48,15 +48,21 @@ pub fn print_help() {
     eprintln!();
     eprintln!("Environment variables:");
     eprintln!("  KIBANA_URL        Kibana or Elasticsearch base URL (required)");
+    eprintln!("  KIBANA_INSECURE   Skip TLS verification (\"true\" or \"1\")");
+    eprintln!();
+    eprintln!("Stdio mode variables:");
     eprintln!("  KIBANA_USERNAME   Username for basic authentication");
     eprintln!("  KIBANA_PASSWORD   Password for basic authentication");
     eprintln!("  KIBANA_API_KEY    API key for Elasticsearch authentication");
-    eprintln!("  KIBANA_INSECURE   Skip TLS verification (\"true\" or \"1\")");
     eprintln!();
     eprintln!("HTTP mode variables:");
     eprintln!("  MCP_HOST          Host to bind [default: 127.0.0.1]");
     eprintln!("  MCP_PORT          Port to bind [default: 8080]");
     eprintln!("  MCP_AUTH_TOKEN    Bearer token for HTTP authentication");
+    eprintln!();
+    eprintln!("HTTP mode per-client headers (sent with initialize request):");
+    eprintln!("  X-Kibana-Username + X-Kibana-Password   Basic auth credentials");
+    eprintln!("  X-Kibana-API-Key                        API key authentication");
 }
 
 pub fn print_version() {
