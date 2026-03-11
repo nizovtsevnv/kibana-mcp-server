@@ -5,7 +5,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use tracing::info;
 
@@ -31,6 +31,7 @@ pub async fn run_http_server(
 
     let app = Router::new()
         .route("/mcp", post(handle_post).delete(handle_delete))
+        .route("/health", get(handle_health))
         .with_state(state);
 
     let addr = format!("{host}:{port}");
@@ -144,6 +145,10 @@ async fn handle_post(
     }
 }
 
+async fn handle_health() -> impl IntoResponse {
+    axum::Json(serde_json::json!({"status": "ok"}))
+}
+
 async fn handle_delete(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if let Err(status) = check_auth(&state, &headers) {
         return status.into_response();
@@ -223,6 +228,16 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("mcp-session-id", "test-id-123".parse().unwrap());
         assert_eq!(get_session_id(&headers), Some("test-id-123".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_health_returns_ok() {
+        let resp = handle_health().await.into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
     }
 
     fn check_auth_standalone(token: Option<&str>, headers: &HeaderMap) -> Result<(), StatusCode> {
