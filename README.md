@@ -155,8 +155,7 @@ Release targets:
 
 | Artifact | Build method | Notes |
 |---|---|---|
-| `linux-x86_64` | nix (default) | glibc |
-| `linux-x86_64-musl` | nix (musl) | Static binary |
+| `linux-x86_64` | nix (musl) | Static binary |
 | `windows-x86_64` | cargo (native) | Windows runner |
 | `macos-x86_64` | nix (default) | Intel Mac |
 | `macos-arm64` | nix (default) | Apple Silicon |

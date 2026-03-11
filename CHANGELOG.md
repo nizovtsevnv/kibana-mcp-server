@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Simple CLI commands: --stdio (default), --http, --version, --help
 - Remove clap dependency
 
+### Fixed
+- Build fully static Linux binary (musl) instead of dynamically linked
+
 ## [v0.1.0] - 2026-03-10
 
 ### Added

@@ -17,14 +17,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             name: linux-x86_64
             nix-package: default
-            binary: kibana-mcp-server
-            os: ubuntu-latest
-          - target: x86_64-unknown-linux-musl
-            name: linux-x86_64-musl
-            nix-package: musl
             binary: kibana-mcp-server
             os: ubuntu-latest
           - target: x86_64-apple-darwin

@@ -51,36 +51,21 @@ HOOK
         };
 
         packages = {
-          # Native linux build (glibc)
-          default = pkgs.rustPlatform.buildRustPackage {
-            inherit pname version;
-            src = ./.;
-            inherit cargoHash;
-
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.openssl ];
-
-            meta = with pkgs.lib; {
-              description = "Kibana/Elasticsearch MCP server for log access";
-              license = licenses.mit;
-            };
-          };
-
           # Static linux build (musl)
-          musl = let
-            muslPkgs = pkgs.pkgsCross.musl64;
-          in muslPkgs.rustPlatform.buildRustPackage {
-            pname = "${pname}-musl";
-            inherit version;
+          default = let
+            staticPkgs = pkgs.pkgsStatic;
+          in staticPkgs.rustPlatform.buildRustPackage {
+            inherit pname version;
             src = ./.;
             inherit cargoHash;
 
             nativeBuildInputs = [ pkgs.pkg-config ];
 
             CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
 
             meta = with pkgs.lib; {
-              description = "Kibana/Elasticsearch MCP server for log access (musl static)";
+              description = "Kibana/Elasticsearch MCP server for log access";
               license = licenses.mit;
             };
           };
